@@ -200,7 +200,7 @@ def build_contextual_description(
 
 # ── Indexing ──────────────────────────────────────────────────────────────────
 
-def build_index(photos_dir: Path, index_dir: Path):
+def build_index(photos_dir: Path, index_dir: Path, use_clip: bool = False):
     """
     Main ingestion loop. For every supported photo:
       1. Extract EXIF
@@ -212,6 +212,17 @@ def build_index(photos_dir: Path, index_dir: Path):
     Saves the BM25 index and an ID→path mapping to disk alongside ChromaDB.
     """
     index_dir.mkdir(parents=True, exist_ok=True)
+
+
+    # Optionally set up CLIP indexer
+    clip_indexer = None
+    if use_clip:
+        try:
+            from photo_rag.clip_search import CLIPIndexer
+            print("Loading CLIP model...")
+            clip_indexer = CLIPIndexer(index_dir)
+        except ImportError as e:
+            print(f"  [CLIP] Skipping: {e}")
 
     # Discover photos
     photo_paths = sorted([
@@ -289,6 +300,11 @@ def build_index(photos_dir: Path, index_dir: Path):
         bm25_ids.append(photo_id)
         id_to_path[photo_id] = str(photo_path)
 
+
+        # 6. CLIP image embedding (optional)
+        if clip_indexer is not None:
+            clip_indexer.add(photo_id, photo_path)
+
         new_count += 1
 
     print(f"\nIndexed {new_count} new photos. "
@@ -306,7 +322,7 @@ def build_index(photos_dir: Path, index_dir: Path):
         }, f)
 
     # Save embedder model name for retrieval consistency
-    config = {"embedding_model": EMBEDDING_MODEL, "vision_model": VISION_MODEL}
+    config = {"embedding_model": EMBEDDING_MODEL, "vision_model": VISION_MODEL, "clip_enabled": use_clip}
     with open(index_dir / "config.json", "w") as f:
         json.dump(config, f, indent=2)
 
@@ -325,8 +341,9 @@ def main():
         "--index", type=Path, default=Path("./photo_index"),
         help="Where to store the index (default: ./photo_index)",
     )
+    parser.add_argument("--clip", action="store_true", help="Also build CLIP image-embedding index (requires [clip] extra)")
     args = parser.parse_args()
-    build_index(args.photos.expanduser(), args.index.expanduser())
+    build_index(args.photos.expanduser(), args.index.expanduser(), use_clip=args.clip)
 
 
 if __name__ == "__main__":

@@ -7,23 +7,25 @@ Anthropic's [Contextual Retrieval](https://www.anthropic.com/engineering/context
 
 ```
 INDEXING (run once)
-────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────
 Photo
   → EXIF (date, GPS, camera)
-  → GPS → human-readable location  (geopy + Nominatim)
-  → Vision caption                 (LLaVA via Ollama)
-  → Contextual description         (EXIF + caption merged)
-  → Embedding                      (sentence-transformers)
+  → GPS → human-readable location        (geopy + Nominatim)
+  → Vision caption                       (LLaVA via Ollama)
+  → Contextual description               (EXIF + caption merged)
+  → Text embedding                       (sentence-transformers)
+  → [Optional] CLIP image embedding      (open-clip)
   → ChromaDB vector store  +  BM25 index
 
 QUERYING (run any time)
-────────────────────────────────────────────────────────
+────────────────────────────────────────────────────────────────
 Natural language query
-  → Stage 1a: Semantic search      (ChromaDB, top 50)
-  → Stage 1b: BM25 lexical search  (rank_bm25, top 50)
-  → Stage 2:  Reciprocal Rank Fusion → merged top 100
-  → Stage 3:  Cross-encoder rerank → top 20 → top K
-  → Stage 4:  Local LLM answers    (Llama 3.2 via Ollama)
+  → Stage 1a: Semantic text search       (ChromaDB, top 50)
+  → Stage 1b: BM25 lexical search        (rank_bm25, top 50)
+  → Stage 1c: CLIP text→image search     (ChromaDB clip, top 50) [if indexed]
+  → Stage 2:  Reciprocal Rank Fusion     → merged + deduplicated
+  → Stage 3:  Cross-encoder reranking    → top 20 → top K
+  → Stage 4:  Local LLM answer           (Llama 3.2 via Ollama)
 ```
 
 ## Requirements
@@ -48,32 +50,22 @@ ollama pull llava        # vision model for captioning (~4 GB)
 ollama pull llama3.2     # LLM for answering queries
 ```
 
-`moondream` is a lighter alternative to `llava` for faster indexing:
+`moondream` is a lighter alternative to `llava`:
 ```bash
 ollama pull moondream
-# then set VISION_MODEL = "moondream" in src/photo_rag/ingest.py
+# Set VISION_MODEL = "moondream" in src/photo_rag/ingest.py
 ```
 
-### 3. Clone and set up the project
+### 3. Clone and install
 
 ```bash
 git clone https://github.com/bearbearyu1223/photo-album-rag.git
 cd photo-album-rag
-
-# Create venv and install all dependencies (reads pyproject.toml)
-uv sync
-
-# Activate the venv
-source .venv/bin/activate
-```
-
-### 4. Optional extras
-
-```bash
-uv sync --extra clip   # CLIP image-similarity search
-uv sync --extra ui     # Streamlit web UI
-uv sync --extra all    # Everything
-uv sync --dev          # Dev tools (pytest, ruff, mypy)
+uv sync                  # core deps only
+uv sync --extra ui       # + Streamlit web UI
+uv sync --extra clip     # + CLIP image-similarity search
+uv sync --extra all      # + everything
+uv sync --group dev      # + dev tools (pytest, ruff, mypy)
 ```
 
 ## Usage
@@ -81,31 +73,44 @@ uv sync --dev          # Dev tools (pytest, ruff, mypy)
 ### Index your photos
 
 ```bash
-# With activated venv:
-photo-ingest --photos ~/Pictures --index ./photo_index
-
-# Or without activating the venv:
+# Text index only (faster)
 uv run photo-ingest --photos ~/Pictures --index ./photo_index
+
+# Text + CLIP image embeddings (enables visual similarity search)
+uv run photo-ingest --photos ~/Pictures --index ./photo_index --clip
 ```
 
-This is the slow step (~10–30 seconds per photo). The index is **incremental** — re-running skips already-indexed photos.
+The index is **incremental** — re-running only processes new photos.
 
-### Query — interactive REPL
+### Web UI (recommended)
 
 ```bash
-photo-query --index ./photo_index
+uv run photo-app
+# or
+uv run streamlit run src/photo_rag/app.py
 ```
 
-### Query — single question
+Opens at http://localhost:8501. Features:
+- Natural language search with LLM-generated answer
+- Thumbnail grid with expandable captions and metadata
+- "Find similar photos" (CLIP visual similarity, if indexed)
+
+### CLI — interactive REPL
 
 ```bash
-photo-query --index ./photo_index --query "beach photos from last summer"
+uv run photo-query --index ./photo_index
 ```
 
-### Retrieval only (no LLM answer)
+### CLI — single query
 
 ```bash
-photo-search --index ./photo_index --query "hiking with friends" --top-k 5
+uv run photo-query --index ./photo_index --query "beach photos from last summer"
+```
+
+### CLI — retrieval only (no LLM)
+
+```bash
+uv run photo-search --index ./photo_index --query "hiking with friends" --top-k 5
 ```
 
 ## Example queries
@@ -121,36 +126,40 @@ photo-search --index ./photo_index --query "hiking with friends" --top-k 5
 
 ```
 photo-album-rag/
-├── pyproject.toml          # project metadata + dependencies (uv)
+├── pyproject.toml              # project metadata + dependencies (uv)
+├── uv.lock                     # lockfile — commit this
 ├── README.md
 ├── src/
 │   └── photo_rag/
 │       ├── __init__.py
-│       ├── ingest.py       # indexing pipeline
-│       ├── retrieve.py     # hybrid retrieval (semantic + BM25 + rerank)
-│       └── query.py        # LLM-powered query interface
-└── tests/                  # add your tests here
+│       ├── ingest.py           # indexing pipeline
+│       ├── retrieve.py         # hybrid retrieval: semantic + BM25 + CLIP + rerank
+│       ├── clip_search.py      # CLIP image embedding (optional extra)
+│       ├── query.py            # CLI + LLM-powered query interface
+│       └── app.py              # Streamlit web UI
+└── tests/
+    ├── conftest.py             # shared fixtures
+    ├── test_ingest.py          # EXIF helpers, description builder
+    └── test_retrieval.py       # RRF, BM25, PhotoRetriever (mocked)
 ```
 
 ## Development
 
 ```bash
-uv sync --dev
+uv sync --group dev
 
-# Lint + format
-uv run ruff check src/
-uv run ruff format src/
-
-# Type check
-uv run mypy src/
-
-# Run tests
-uv run pytest
+uv run ruff check src/          # lint
+uv run ruff format src/         # format
+uv run mypy src/                # type check
+uv run pytest                   # run all tests (39 tests, ~22s)
+uv run pytest -v --tb=short     # verbose output
 ```
 
 ## Tips
 
-- **Caption quality matters most.** Edit `CAPTION_PROMPT` in `ingest.py` to match your library.
-- **HEIC support** is included via `pillow-heif` — no extra steps for iPhone photos.
-- The `photo_index/` directory is excluded from git via `.gitignore`.
-- For better reranking accuracy, swap `cross-encoder/ms-marco-MiniLM-L-6-v2` for `cross-encoder/ms-marco-electra-base` in `retrieve.py`.
+- **Caption quality matters most.** Edit `CAPTION_PROMPT` in `ingest.py`.
+- **HEIC support** is built in via `pillow-heif` — iPhone photos work out of the box.
+- The `photo_index/` directory is excluded from git (large binary data).
+- For better reranking, swap `cross-encoder/ms-marco-MiniLM-L-6-v2` for
+  `cross-encoder/ms-marco-electra-base` in `retrieve.py`.
+- On Apple Silicon, CLIP automatically uses MPS for GPU-accelerated inference.

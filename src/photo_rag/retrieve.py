@@ -74,6 +74,7 @@ class PhotoRetriever:
         semantic_candidates: int = 50,
         bm25_candidates: int = 50,
         rerank_candidates: int = 20,
+        clip_candidates: int = 50,
     ):
         """
         Args:
@@ -82,11 +83,14 @@ class PhotoRetriever:
             bm25_candidates:     How many results to pull from BM25.
             rerank_candidates:   Pool size passed to the cross-encoder;
                                  search() returns top_k from this pool.
+            clip_candidates:     How many results to pull from CLIP index.
+                                 Ignored if CLIP was not built during ingest.
         """
         self.index_dir = Path(index_dir)
         self.semantic_candidates = semantic_candidates
         self.bm25_candidates = bm25_candidates
         self.rerank_candidates = rerank_candidates
+        self.clip_candidates = clip_candidates
 
         self._load_index()
 
@@ -121,6 +125,17 @@ class PhotoRetriever:
         self.bm25_ids = saved["ids"]
         self.id_to_path = saved["id_to_path"]
 
+        # Load CLIP searcher if index was built with --clip
+        self.clip_searcher = None
+        if config.get("clip_enabled"):
+            try:
+                from photo_rag.clip_search import CLIPSearcher
+                print("Loading CLIP searcher...")
+                self.clip_searcher = CLIPSearcher(self.index_dir)
+                print(f"  CLIP collection: {self.clip_searcher.collection.count()} photos")
+            except ImportError:
+                print("  [CLIP] Extra not installed — skipping CLIP search.")
+
         print(f"Index ready — {len(self.bm25_ids)} photos.\n")
 
     # ── Search ─────────────────────────────────────────────────────────────
@@ -140,14 +155,87 @@ class PhotoRetriever:
         # 2. BM25 search
         bm25_hits = self._bm25_search(query)
 
-        # 3. Merge via RRF
-        fused = self._reciprocal_rank_fusion(semantic_hits, bm25_hits)
+        # 3. CLIP search (if available)
+        clip_hits = self._clip_search(query)
 
-        # 4. Rerank the top pool
+        # 4. Merge via RRF (2 or 3 signals depending on CLIP availability)
+        rrf_inputs = [semantic_hits, bm25_hits] + ([clip_hits] if clip_hits else [])
+        fused = self._reciprocal_rank_fusion(*rrf_inputs)
+
+        # 5. Rerank the top pool
         pool = fused[:self.rerank_candidates]
         reranked = self._rerank(query, pool)
 
         return reranked[:top_k]
+
+    # ── CLIP search ────────────────────────────────────────────────────────
+
+    def _clip_search(self, query: str) -> list[PhotoResult]:
+        """CLIP text→image search. Returns empty list if CLIP is unavailable."""
+        if self.clip_searcher is None:
+            return []
+
+        hits = self.clip_searcher.text_search(query, n_results=self.clip_candidates)
+        if not hits:
+            return []
+
+        ids_to_fetch = [pid for pid, _ in hits]
+        fetched = self.collection.get(
+            ids=ids_to_fetch,
+            include=["documents", "metadatas"],
+        )
+        meta_by_id = {
+            pid: (doc, meta)
+            for pid, doc, meta in zip(
+                fetched["ids"], fetched["documents"], fetched["metadatas"]
+            )
+        }
+        results = []
+        for photo_id, score in hits:
+            if photo_id not in meta_by_id:
+                continue
+            doc, meta = meta_by_id[photo_id]
+            results.append(PhotoResult(
+                photo_id=photo_id,
+                path=meta["path"],
+                description=doc,
+                caption=meta.get("caption", ""),
+                datetime=meta.get("datetime", ""),
+                camera=meta.get("camera", ""),
+                rrf_score=score,
+            ))
+        return results
+
+    def image_search(self, photo_path, top_k: int = 5) -> list[PhotoResult]:
+        """Find visually similar photos to a given photo file."""
+        if self.clip_searcher is None:
+            raise RuntimeError(
+                "CLIP index not available. Re-run ingest.py with --clip."
+            )
+        clip_hits = self.clip_searcher.image_search(photo_path, n_results=top_k * 4)
+        ids_to_fetch = [pid for pid, _ in clip_hits]
+        fetched = self.collection.get(ids=ids_to_fetch, include=["documents", "metadatas"])
+        meta_by_id = {
+            pid: (doc, meta)
+            for pid, doc, meta in zip(
+                fetched["ids"], fetched["documents"], fetched["metadatas"]
+            )
+        }
+        results = []
+        for photo_id, score in clip_hits:
+            if photo_id not in meta_by_id:
+                continue
+            doc, meta = meta_by_id[photo_id]
+            results.append(PhotoResult(
+                photo_id=photo_id,
+                path=meta["path"],
+                description=doc,
+                caption=meta.get("caption", ""),
+                datetime=meta.get("datetime", ""),
+                camera=meta.get("camera", ""),
+                rrf_score=score,
+            ))
+        return self._rerank("", results)[:top_k]
 
     # ── Stage 1: Semantic search ───────────────────────────────────────────
 
