@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 import streamlit as st
-from PIL import Image
+from PIL import Image, ImageOps
 
 # ── Page config (must be first Streamlit call) ────────────────────────────────
 
@@ -108,6 +108,7 @@ def get_llm_answer(query: str, results) -> str:
 def load_thumbnail(path: str, size: int = 300) -> Image.Image | None:
     try:
         img = Image.open(path)
+        img = ImageOps.exif_transpose(img)
         img.thumbnail((size, size), Image.LANCZOS)
         return img
     except Exception:
@@ -150,6 +151,16 @@ def render_result_card(result, col, rank: int):
         if result.camera:
             st.markdown(
                 f'<div class="meta-row">📷 {result.camera}</div>',
+                unsafe_allow_html=True,
+            )
+        if result.location:
+            st.markdown(
+                f'<div class="meta-row">📍 {result.location}</div>',
+                unsafe_allow_html=True,
+            )
+        elif result.gps_lat and result.gps_lon:
+            st.markdown(
+                f'<div class="meta-row">📍 {result.gps_lat:.4f}, {result.gps_lon:.4f}</div>',
                 unsafe_allow_html=True,
             )
 
@@ -354,6 +365,25 @@ def main():
     # Clear session state for similar-photo navigation
     if "similar_to" in st.session_state and st.session_state.get("search_mode") != "similar":
         del st.session_state["similar_to"]
+
+
+def _cli():
+    """Entry point for the `photo-app` console script.
+
+    Launches Streamlit as a subprocess so the app works via `uv run photo-app`.
+    """
+    import subprocess
+    from importlib.resources import files
+
+    app_path = str(files("photo_rag").joinpath("app.py"))
+    subprocess.run(
+        [
+            sys.executable, "-m", "streamlit", "run", app_path,
+            "--server.headless", "true",
+            "--",
+        ]
+        + sys.argv[1:],
+    )
 
 
 if __name__ == "__main__":

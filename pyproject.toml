@@ -56,7 +56,7 @@ dev = [
 photo-ingest  = "photo_rag.ingest:main"
 photo-search  = "photo_rag.retrieve:main"
 photo-query   = "photo_rag.query:main"
-photo-app     = "photo_rag.app:main"
+photo-app     = "photo_rag.app:_cli"
 
 [build-system]
 requires = ["hatchling"]

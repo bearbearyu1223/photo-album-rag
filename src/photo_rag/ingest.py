@@ -291,6 +291,9 @@ def build_index(photos_dir: Path, index_dir: Path, use_clip: bool = False):
                 "datetime": meta.get("datetime", ""),
                 "camera": meta.get("camera", ""),
                 "caption": caption,
+                "gps_lat": meta["gps"][0] if "gps" in meta else 0.0,
+                "gps_lon": meta["gps"][1] if "gps" in meta else 0.0,
+                "location": gps_to_place(*meta["gps"]) if "gps" in meta else "",
             }],
         )
 

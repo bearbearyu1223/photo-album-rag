@@ -46,15 +46,20 @@ class PhotoResult:
     caption: str              # just the vision model caption
     datetime: str
     camera: str
+    location: str = ""        # human-readable location from reverse geocoding
+    gps_lat: float = 0.0
+    gps_lon: float = 0.0
     rrf_score: float = 0.0    # after rank fusion
     rerank_score: float = 0.0 # after cross-encoder
 
     def display(self):
         print(f"  📷 {Path(self.path).name}")
-        print(f"     Date   : {self.datetime or 'unknown'}")
-        print(f"     Camera : {self.camera or 'unknown'}")
-        print(f"     Caption: {self.caption[:120]}...")
-        print(f"     Score  : {self.rerank_score:.4f}")
+        print(f"     Date    : {self.datetime or 'unknown'}")
+        print(f"     Camera  : {self.camera or 'unknown'}")
+        if self.location:
+            print(f"     Location: {self.location}")
+        print(f"     Caption : {self.caption[:120]}...")
+        print(f"     Score   : {self.rerank_score:.4f}")
         print()
 
 
@@ -202,6 +207,9 @@ class PhotoRetriever:
                 caption=meta.get("caption", ""),
                 datetime=meta.get("datetime", ""),
                 camera=meta.get("camera", ""),
+                location=meta.get("location", ""),
+                gps_lat=meta.get("gps_lat", 0.0),
+                gps_lon=meta.get("gps_lon", 0.0),
                 rrf_score=score,
             ))
         return results
@@ -233,6 +241,9 @@ class PhotoRetriever:
                 caption=meta.get("caption", ""),
                 datetime=meta.get("datetime", ""),
                 camera=meta.get("camera", ""),
+                location=meta.get("location", ""),
+                gps_lat=meta.get("gps_lat", 0.0),
+                gps_lon=meta.get("gps_lon", 0.0),
                 rrf_score=score,
             ))
         return self._rerank("", results)[:top_k]
@@ -261,6 +272,9 @@ class PhotoRetriever:
                 caption=meta.get("caption", ""),
                 datetime=meta.get("datetime", ""),
                 camera=meta.get("camera", ""),
+                location=meta.get("location", ""),
+                gps_lat=meta.get("gps_lat", 0.0),
+                gps_lon=meta.get("gps_lon", 0.0),
                 rrf_score=1.0 - dist,   # cosine distance → similarity
             ))
         return hits
@@ -305,6 +319,9 @@ class PhotoRetriever:
                 caption=meta.get("caption", ""),
                 datetime=meta.get("datetime", ""),
                 camera=meta.get("camera", ""),
+                location=meta.get("location", ""),
+                gps_lat=meta.get("gps_lat", 0.0),
+                gps_lon=meta.get("gps_lon", 0.0),
                 rrf_score=bm25_score,
             ))
         return hits
