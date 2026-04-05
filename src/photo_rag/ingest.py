@@ -315,7 +315,7 @@ def build_index(photos_dir: Path, index_dir: Path):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Index a photo library for RAG.")
     parser.add_argument(
         "--photos", type=Path, required=True,
@@ -326,5 +326,8 @@ if __name__ == "__main__":
         help="Where to store the index (default: ./photo_index)",
     )
     args = parser.parse_args()
-
     build_index(args.photos.expanduser(), args.index.expanduser())
+
+
+if __name__ == "__main__":
+    main()

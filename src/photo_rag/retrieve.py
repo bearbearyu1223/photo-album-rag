@@ -276,7 +276,7 @@ class PhotoRetriever:
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(description="Search your indexed photo library.")
     parser.add_argument("--index", type=Path, default=Path("./photo_index"))
     parser.add_argument("--query", type=str, required=True)
@@ -289,3 +289,7 @@ if __name__ == "__main__":
     print(f"\nTop {len(results)} results for: \"{args.query}\"\n")
     for result in results:
         result.display()
+
+
+if __name__ == "__main__":
+    main()

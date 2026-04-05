@@ -136,7 +136,7 @@ def run_repl(retriever: PhotoRetriever):
 
 # ── CLI ───────────────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser(
         description="Ask questions about your indexed photo library."
     )
@@ -157,3 +157,7 @@ if __name__ == "__main__":
         print_answer(answer)
     else:
         run_repl(retriever)
+
+
+if __name__ == "__main__":
+    main()
