@@ -170,7 +170,7 @@ def render_result_card(result, col, rank: int):
                 st.write(result.caption)
 
         # "Find similar" button (CLIP)
-        if st.button("🔍 Find similar", key=f"sim_{result.photo_id}", use_container_width=True):
+        if st.button("🔍 Find similar", key=f"sim_{rank}_{result.photo_id}", use_container_width=True):
             st.session_state["similar_to"] = result.path
             st.session_state["search_mode"] = "similar"
             st.rerun()
@@ -224,7 +224,14 @@ def main():
     clip_available = getattr(retriever, "clip_searcher", None) is not None
 
     # ── Search mode tabs ──────────────────────────────────────────────────────
-    tab_text, tab_similar = st.tabs(["🔎 Text search", "🖼️ Similar photos"])
+    similar_tab_label = "🖼️ Similar photos"
+    text_tab_label = "🔎 Text search"
+    # Auto-switch to similar tab when triggered by "Find similar" button
+    default_tab = similar_tab_label if st.session_state.get("similar_to") else None
+    tab_text, tab_similar = st.tabs(
+        [text_tab_label, similar_tab_label],
+        default=default_tab,
+    )
 
     # ═══════════════════════════════════════════════════
     # Tab 1 — Text search

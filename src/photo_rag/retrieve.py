@@ -373,8 +373,10 @@ class PhotoRetriever:
         pairs = [(query, c.description) for c in candidates]
         scores = self.reranker.predict(pairs)
 
+        import math
+
         for result, score in zip(candidates, scores):
-            result.rerank_score = float(score)
+            result.rerank_score = 1.0 / (1.0 + math.exp(-float(score)))
 
         return sorted(candidates, key=lambda r: r.rerank_score, reverse=True)
 
